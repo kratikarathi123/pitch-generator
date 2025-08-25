@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Startup Idea Generator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🚀 Startup Idea Generator</h1>
+      <p class="subtitle">Transform your bullet points into a compelling startup pitch</p>
+    </header>
+
+    <div class="input-section">
+      <h2>💡 Enter Your Startup Idea</h2>
+      <form id="ideaForm">
+        <div class="form-group">
+          <label for="startupName">Startup Name</label>
+          <input type="text" id="startupName" placeholder="Enter a name for your startup" required>
+        </div>
+        <div class="form-group">
+          <label for="ideaBullets">Key Points About Your Idea (one per line)</label>
+          <textarea id="ideaBullets" placeholder="Enter at least 3 key points about your idea
+Example:
+- Solves a specific problem in healthcare
+- Uses AI to personalize recommendations
+- Targets a growing market of remote workers" required></textarea>
+        </div>
+        <button type="submit" class="btn" id="generateBtn">Generate Pitch Materials</button>
+        <span class="spinner" id="spinner"></span>
+        <div id="errorBox" class="error" style="display:none;"></div>
+      </form>
+    </div>
+
+    <div class="results-section" id="resultsSection">
+      <h2>✨ Generated Pitch Materials</h2>
+      <div class="tagline" id="taglineOutput"></div>
+
+      <div class="result-card">
+        <h3><i>🎯</i> Elevator Pitch</h3>
+        <div class="result-content" id="elevatorPitchOutput"></div>
+      </div>
+
+      <div class="result-card">
+        <h3><i>📊</i> Slide Bullets</h3>
+        <div class="result-content" id="slideBulletsOutput"></div>
+      </div>
+
+      <div class="result-card">
+        <h3><i>💎</i> Value Proposition</h3>
+        <div class="result-content" id="valuePropOutput"></div>
+      </div>
+
+      <div class="result-card">
+        <h3><i>🔍</i> Potential Competitors</h3>
+        <div class="result-content">
+          <ul class="competitors-list" id="competitorsOutput"></ul>
+        </div>
+      </div>
+
+      <div class="result-card">
+        <h3><i>💰</i> Suggested Revenue Models</h3>
+        <div class="result-content">
+          <ul class="revenue-models" id="revenueModelsOutput"></ul>
+        </div>
+      </div>
+
+      <div class="action-buttons">
+        <button class="btn" id="copyBtn">Copy All</button>
+        <button class="btn" id="downloadBtn">Download as Text</button>
+        <button class="btn btn-secondary" id="resetBtn">Start Over</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="notification" id="notification">Content copied to clipboard!</div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const form = document.getElementById('ideaForm');
+      const resultsSection = document.getElementById('resultsSection');
+      const notification = document.getElementById('notification');
+      const spinner = document.getElementById('spinner');
+      const errorBox = document.getElementById('errorBox');
+      const generateBtn = document.getElementById('generateBtn');
+
+      let API_KEY = null;
+
+      async function loadApiKey() {
+        const res = await fetch("/get-key");
+        const data = await res.json();
+        API_KEY = data.key;
+      }
+      loadApiKey();
+
+      // Fallback data used if API omits fields
+      const taglines = [
+        "Innovating Tomorrow, Today","Your Vision, Our Solution","Simplifying Complexity",
+        "The Future Made Simple","Transforming Ideas into Reality"
+      ];
+      const revenueModels = [
+        "Freemium model with premium features","Subscription-based pricing tiers","Transaction fees or commission-based",
+        "Licensing to enterprises","Advertising and sponsored content","Marketplace model connecting buyers and sellers"
+      ];
+      const competitors = [
+        "Existing solutions in the space (e.g., Company A, Company B)",
+        "Traditional manual workflows that our product replaces",
+        "Large platforms likely to expand here",
+        "Niche players focused on a subset of the problem"
+      ];
+
+      function showError(msg) {
+        errorBox.textContent = msg;
+        errorBox.style.display = 'block';
+      }
+      function clearError() {
+        errorBox.style.display = 'none';
+        errorBox.textContent = '';
+      }
+      function setLoading(isLoading){
+        if(isLoading){
+          spinner.style.display='inline-block';
+          generateBtn.disabled = true;
+        }else{
+          spinner.style.display='none';
+          generateBtn.disabled = false;
+        }
+      }
+
+      function tryParseMaybeJSON(txt){
+        // Handles raw JSON or ```json ... ```
+        if(!txt) return null;
+        const codeBlock = txt.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        const candidate = codeBlock ? codeBlock[1] : txt;
+        try { return JSON.parse(candidate); } catch { return null; }
+      }
+
+      async function generateWithAPI(name, bullets) {
+        const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+        const prompt = `
+Generate a startup pitch for a company named "${name}" based on these key points:
+${bullets.map(b => "- " + b).join("\n")}
+
+Return ONLY a JSON object with these exact fields:
+{
+  "tagline": string,
+  "elevatorPitch": string,
+  "slideBullets": string, // an HTML <ul> with 4-6 <li> items
+  "valueProposition": string,
+  "competitors": string[], // 3-5 items
+  "revenueModels": string[] // 3-5 items
+}
+Do not include any extra commentary.
+        `.trim();
+
+        const payload = {
+          contents: [{ parts: [{ text: prompt }]}]
+        };
+
+        const res = await fetch(`${endpoint}?key=${encodeURIComponent(API_KEY)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const t = await res.text();
+          throw new Error(`API ${res.status}: ${t}`);
+        }
+        const json = await res.json();
+        const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const data = tryParseMaybeJSON(text);
+        if (!data) throw new Error('Failed to parse JSON from model response.');
+        return data;
+      }
+
+      function renderData(data) {
+        document.getElementById('taglineOutput').textContent = `"${data.tagline || taglines[Math.floor(Math.random()*taglines.length)]}"`;
+        document.getElementById('elevatorPitchOutput').textContent = data.elevatorPitch || '';
+        document.getElementById('slideBulletsOutput').innerHTML = data.slideBullets || '<ul><li>Problem</li><li>Solution</li><li>Market</li></ul>';
+        document.getElementById('valuePropOutput').textContent = data.valueProposition || '';
+
+        const compUL = document.getElementById('competitorsOutput');
+        compUL.innerHTML = '';
+        const compArr = Array.isArray(data.competitors) && data.competitors.length ? data.competitors : competitors.slice(0,3);
+        compArr.forEach(c => { const li=document.createElement('li'); li.textContent=c; compUL.appendChild(li); });
+
+        const revUL = document.getElementById('revenueModelsOutput');
+        revUL.innerHTML = '';
+        const revArr = Array.isArray(data.revenueModels) && data.revenueModels.length ? data.revenueModels : revenueModels.slice(0,3);
+        revArr.forEach(r => { const li=document.createElement('li'); li.textContent=r; revUL.appendChild(li); });
+      }
+
+      function compileContent() {
+        const startupName = document.getElementById('startupName').value || 'Your Startup';
+        return `
+STARTUP PITCH MATERIALS
+=======================
+
+Startup Name: ${startupName}
+Tagline: ${document.getElementById('taglineOutput').textContent}
+
+ELEVATOR PITCH
+--------------
+${document.getElementById('elevatorPitchOutput').textContent}
+
+SLIDE BULLETS
+-------------
+${document.getElementById('slideBulletsOutput').innerText}
+
+VALUE PROPOSITION
+-----------------
+${document.getElementById('valuePropOutput').textContent}
+
+POTENTIAL COMPETITORS
+---------------------
+${Array.from(document.getElementById('competitorsOutput').querySelectorAll('li')).map(li => "- " + li.textContent).join('\n')}
+
+SUGGESTED REVENUE MODELS
+------------------------
+${Array.from(document.getElementById('revenueModelsOutput').querySelectorAll('li')).map(li => "- " + li.textContent).join('\n')}
+
+Generated by Startup Idea Generator
+`.trim();
+      }
+
+      function downloadAsText(content, filename) {
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${filename.replace(/\s+/g,'-').toLowerCase()}-pitch.txt`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},100);
+      }
+
+      function showToast() {
+        notification.classList.add('show');
+        setTimeout(()=>notification.classList.remove('show'),1500);
+      }
+
+      form.addEventListener('submit', async function(e){
+        e.preventDefault();
+        clearError();
+
+        const name = document.getElementById('startupName').value.trim();
+        const bullets = document.getElementById('ideaBullets').value
+          .split('\n')
+          .map(b => b.trim().replace(/^-+\s*/,''))
+          .filter(Boolean);
+
+        if (!name) { showError('Please enter a startup name.'); return; }
+        if (bullets.length < 3) { showError('Please enter at least 3 bullet points.'); return; }
+
+        setLoading(true);
+        try{
+          const data = await generateWithAPI(name, bullets);
+          renderData(data);
+          resultsSection.style.display = 'block';
+          resultsSection.scrollIntoView({behavior:'smooth'});
+        }catch(err){
+          showError(err.message || 'Failed to generate pitch materials.');
+        }finally{
+          setLoading(false);
+        }
+      });
+
+      document.getElementById('resetBtn').addEventListener('click', function(){
+        form.reset();
+        resultsSection.style.display = 'none';
+        clearError();
+        window.scrollTo({top:0,behavior:'smooth'});
+      });
+
+      document.getElementById('downloadBtn').addEventListener('click', function(){
+        const content = compileContent();
+        downloadAsText(content, document.getElementById('startupName').value || 'startup-idea');
+      });
+
+      document.getElementById('copyBtn').addEventListener('click', async function(){
+        try{
+          await navigator.clipboard.writeText(compileContent());
+          showToast();
+        }catch(e){
+          showError('Copy failed. You can still use Download as Text.');
+        }
+      });
+    });
+  </script>
+</body>
+</html>

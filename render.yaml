@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: startup-idea-generator
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: API_KEY
+        sync: false
